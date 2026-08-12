@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from quickpush.ai_commit import clean_commit_message, generate_heuristic_commit_message
 from quickpush.config import save_config, load_config, get_token, get_config_path
 from quickpush.git_utils import parse_github_repo_info, get_default_commit_message
 from quickpush.github_api import create_pull_request
@@ -16,7 +17,21 @@ from quickpush.github_api import create_pull_request
 
 class TestQuickPush(unittest.TestCase):
 
+    def test_clean_commit_message(self):
+        """Test AI commit message cleaning (markdown block removal, quotes removal)."""
+        raw = "```\nfeat(cli): add AI commit flag\n```"
+        self.assertEqual(clean_commit_message(raw), "feat(cli): add AI commit flag")
+
+        quoted = '"fix(auth): fix token expiration"'
+        self.assertEqual(clean_commit_message(quoted), "fix(auth): fix token expiration")
+
+    def test_heuristic_commit_message(self):
+        """Test rule-based conventional commit generator."""
+        msg = generate_heuristic_commit_message()
+        self.assertTrue(any(msg.startswith(prefix) for prefix in ("feat", "fix", "docs", "chore", "test", "refactor")))
+
     def test_parse_github_repo_info_ssh(self):
+
         """Test parsing owner and repo from SSH URLs."""
         url = "git@github.com:torvalds/linux.git"
         owner, repo = parse_github_repo_info(url)

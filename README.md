@@ -159,6 +159,20 @@ Output:
 ✨ Done!
 ```
 
+### AI-Generated Commit Messages (`gpush -a`)
+Automatically inspect your staged changes and generate a Conventional Commit message using AI:
+
+```bash
+gpush -a
+```
+
+Or combine with automatic Pull Request creation:
+```bash
+gpush -a -p
+```
+
+> **Note on AI Keys**: `gpush` includes a built-in smart diff analyzer that works out of the box with zero setup. To use Gemini or OpenAI cloud models, configure your key once via `gpush setup --ai-key YOUR_API_KEY` or export `GEMINI_API_KEY` / `OPENAI_API_KEY` in your environment.
+
 ---
 
 ## Command Reference
@@ -167,6 +181,7 @@ Output:
 | :--- | :--- | :--- |
 | `[MESSAGE]` | | Commit message string (positional argument) |
 | `-m`, `--message-flag` | `-m` | Explicit commit message option |
+| `-a`, `--ai` | `-a` | Automatically generate Conventional Commit message using AI |
 | `-b`, `--branch` | `-b` | Target branch to push to (defaults to active branch) |
 | `-r`, `--repo` | `-r` | Override repository target (URL or `owner/repo`) |
 | `-s`, `--skip-add` | `-s` | Skip standard `git add .` step |
@@ -176,6 +191,7 @@ Output:
 | `--dry-run` | | Preview actions without executing commands |
 | `-v`, `--version` | `-v` | Show QuickPush version |
 | `-h`, `--help` | `-h` | Show CLI help manual |
+
 
 ---
 

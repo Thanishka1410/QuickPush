@@ -66,3 +66,17 @@ def get_token(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
 
     token = config.get("github_token") or config.get("token")
     return token.strip() if token else None
+
+
+def get_ai_key(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Retrieve AI API key (Gemini/OpenAI) from environment or config."""
+    env_key = os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if env_key:
+        return env_key.strip()
+
+    if config is None:
+        config = load_config()
+
+    key = config.get("ai_api_key") or config.get("gemini_api_key") or config.get("openai_api_key")
+    return key.strip() if key else None
+

@@ -1,7 +1,7 @@
 """
 Main CLI entry point for QuickPush (`gpush`).
 Handles argument parsing, user configuration interactive setup, terminal output formatting,
-and workflow orchestration for git add, commit, push, and PR creation.
+and workflow orchestration for git add, commit, push, PR creation, and AI commit generation.
 """
 
 import argparse
@@ -9,6 +9,7 @@ import sys
 from typing import List, Optional
 
 from quickpush import __version__
+from quickpush.ai_commit import generate_ai_commit_message
 from quickpush.config import load_config, save_config, get_token, get_config_path
 from quickpush.git_utils import (
     is_git_repository,
@@ -23,6 +24,7 @@ from quickpush.git_utils import (
     get_default_commit_message
 )
 from quickpush.github_api import create_pull_request
+
 
 # Ensure UTF-8 output on Windows consoles if supported
 if hasattr(sys.stdout, "reconfigure"):
@@ -57,6 +59,7 @@ class Style:
     ICON_ERROR = safe_symbol("✖", "[x]")
     ICON_ROCKET = safe_symbol("🚀", ">>")
     ICON_SPARKLE = safe_symbol("✨", "*")
+    ICON_ROBOT = safe_symbol("🤖", "[AI]")
 
     @classmethod
     def info(cls, msg: str) -> str:
@@ -75,14 +78,20 @@ class Style:
         return f"{cls.RED}{cls.ICON_ERROR} {msg}{cls.RESET}"
 
 
-
-def run_setup(username: Optional[str], repo: Optional[str], token: Optional[str], branch: Optional[str]):
+def run_setup(
+    username: Optional[str],
+    repo: Optional[str],
+    token: Optional[str],
+    branch: Optional[str],
+    ai_key: Optional[str] = None,
+    ai_provider: Optional[str] = None
+):
     """Execute the interactive or flagged setup command to update ~/.gpconfig."""
     print(f"\n{Style.BOLD}--- QuickPush Configuration Setup ---{Style.RESET}\n")
 
     current = load_config()
 
-    if not any([username, repo, token, branch]):
+    if not any([username, repo, token, branch, ai_key, ai_provider]):
         print("Enter your GitHub configuration options below (press Enter to keep existing value):\n")
         
         user_in = input(f"GitHub Username [{current.get('github_username', '')}]: ").strip()
@@ -97,6 +106,9 @@ def run_setup(username: Optional[str], repo: Optional[str], token: Optional[str]
         branch_in = input(f"Default Base Branch [{current.get('default_branch', 'main')}]: ").strip()
         branch = branch_in if branch_in else current.get('default_branch', 'main')
 
+        ai_key_in = input(f"AI API Key (Gemini/OpenAI) [{ '******' if current.get('ai_api_key') else '' }]: ").strip()
+        ai_key = ai_key_in if ai_key_in else current.get('ai_api_key')
+
     new_config = {}
     if username:
         new_config["github_username"] = username
@@ -106,6 +118,10 @@ def run_setup(username: Optional[str], repo: Optional[str], token: Optional[str]
         new_config["github_token"] = token
     if branch:
         new_config["default_branch"] = branch
+    if ai_key:
+        new_config["ai_api_key"] = ai_key
+    if ai_provider:
+        new_config["ai_provider"] = ai_provider
 
     if save_config(new_config):
         print(f"\n{Style.success(f'Configuration successfully saved to {get_config_path()}')}")
@@ -121,6 +137,7 @@ def run_main_workflow(
     force: bool,
     create_pr: bool,
     pr_base: Optional[str],
+    use_ai: bool,
     dry_run: bool
 ):
     """Execute the main stage -> commit -> push -> PR workflow."""
@@ -176,13 +193,19 @@ def run_main_workflow(
             else:
                 print(Style.info("No uncommitted changes detected to stage."))
 
-    # 5. Commit changes
-    if dry_run:
+    # 5. Determine Commit Message (AI or User/Default)
+    if use_ai or (message is None and config.get("auto_ai", False)):
+        print(Style.info(f"{Style.ICON_ROBOT} Generating AI commit message..."))
+        commit_msg = generate_ai_commit_message(config=config)
+        print(Style.info(f"AI Commit Message: {Style.BOLD}'{commit_msg}'{Style.RESET}"))
+    else:
         commit_msg = message or get_default_commit_message()
+
+    # 6. Commit changes
+    if dry_run:
         print(Style.info(f"[DRY RUN] Would execute: git commit -m \"{commit_msg}\""))
     else:
         if has_staged_changes():
-            commit_msg = message or get_default_commit_message()
             print(f"Committing with message: '{commit_msg}'...")
             success, msg = git_commit(commit_msg)
             if not success:
@@ -192,7 +215,7 @@ def run_main_workflow(
         else:
             print(Style.info("No staged changes to commit. Proceeding to push existing commits."))
 
-    # 6. Push to GitHub
+    # 7. Push to GitHub
     remote_name = "origin"
     if dry_run:
         push_cmd = f"git push {'--force ' if force else ''}--set-upstream {remote_name} {branch}"
@@ -205,7 +228,7 @@ def run_main_workflow(
             sys.exit(1)
         print(Style.success(f"Pushed to GitHub remote '{remote_name}/{branch}' successfully!"))
 
-    # 7. Create Pull Request if requested
+    # 8. Create Pull Request if requested
     if create_pr:
         token = get_token(config)
         base = pr_base or config.get("default_branch") or "main"
@@ -226,7 +249,7 @@ def run_main_workflow(
                     repo=repo_name,
                     head_branch=branch,
                     base_branch=base,
-                    title=message or f"PR: {branch} -> {base}"
+                    title=commit_msg or f"PR: {branch} -> {base}"
                 )
                 if success:
                     print(Style.success(pr_msg))
@@ -244,11 +267,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   gpush                          # Stage all, auto-commit with timestamp, and push
+  gpush -a                       # Stage all, generate AI commit message, and push
   gpush "feat: add user login"   # Stage all, commit with custom message, and push
-  gpush -p                       # Push and automatically open a GitHub Pull Request
+  gpush -a -p                    # AI commit message + open GitHub Pull Request
   gpush -m "fix bug" -f          # Force push with commit message
-  gpush --skip-add               # Skip git add ., push existing staged/local commits
-  gpush setup                    # Configure default username, repo, token, and branch
+  gpush setup                    # Configure default username, repo, token, and AI API key
 """
     )
 
@@ -256,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
         "message",
         nargs="?",
         default=None,
-        help="Commit message. If omitted, a default timestamped message will be generated."
+        help="Commit message. If omitted, a default timestamped message or AI message will be generated."
     )
 
     parser.add_argument(
@@ -264,6 +287,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="message_flag",
         metavar="MSG",
         help="Alternative flag to specify commit message."
+    )
+
+    parser.add_argument(
+        "-a", "--ai",
+        action="store_true",
+        help="Generate commit message automatically using AI diff analysis."
     )
 
     parser.add_argument(
@@ -321,12 +350,14 @@ def build_setup_parser() -> argparse.ArgumentParser:
     """Build parser for `gpush setup` subcommand."""
     setup_parser = argparse.ArgumentParser(
         prog="gpush setup",
-        description="Configure GitHub username, default repo, token, and branch."
+        description="Configure GitHub username, default repo, token, branch, and AI API key."
     )
     setup_parser.add_argument("-u", "--username", help="GitHub Username")
     setup_parser.add_argument("-r", "--repo", help="Default repository (owner/repo)")
     setup_parser.add_argument("-t", "--token", help="GitHub Personal Access Token (PAT)")
     setup_parser.add_argument("-b", "--branch", help="Default target base branch")
+    setup_parser.add_argument("--ai-key", help="AI API Key (Gemini or OpenAI)")
+    setup_parser.add_argument("--ai-provider", help="AI Provider (gemini or openai)")
     return setup_parser
 
 
@@ -342,7 +373,9 @@ def main(argv: Optional[List[str]] = None):
             username=args.username,
             repo=args.repo,
             token=args.token,
-            branch=args.branch
+            branch=args.branch,
+            ai_key=args.ai_key,
+            ai_provider=args.ai_provider
         )
     else:
         parser = build_parser()
@@ -356,9 +389,9 @@ def main(argv: Optional[List[str]] = None):
             force=args.force,
             create_pr=args.pr,
             pr_base=args.base,
+            use_ai=args.ai,
             dry_run=args.dry_run
         )
-
 
 
 if __name__ == "__main__":
