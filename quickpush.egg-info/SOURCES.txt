@@ -1,0 +1,15 @@
+LICENSE
+README.md
+pyproject.toml
+quickpush/__init__.py
+quickpush/cli.py
+quickpush/config.py
+quickpush/git_utils.py
+quickpush/github_api.py
+quickpush.egg-info/PKG-INFO
+quickpush.egg-info/SOURCES.txt
+quickpush.egg-info/dependency_links.txt
+quickpush.egg-info/entry_points.txt
+quickpush.egg-info/requires.txt
+quickpush.egg-info/top_level.txt
+tests/test_cli.py
