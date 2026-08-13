@@ -1,7 +1,7 @@
 """
 Main CLI entry point for QuickPush (`gpush`).
 Handles argument parsing, user configuration interactive setup, terminal output formatting,
-pre-push safety testing/linting checks, AI commit generation, and enhanced GitHub PR creation.
+pre-push safety testing/linting checks, AI commit generation, automatic branch creation, and enhanced GitHub PR creation.
 """
 
 import argparse
@@ -15,6 +15,7 @@ from quickpush.config import load_config, save_config, get_token, get_config_pat
 from quickpush.git_utils import (
     is_git_repository,
     get_current_branch,
+    create_and_checkout_branch,
     get_remote_url,
     parse_github_repo_info,
     has_uncommitted_changes,
@@ -62,6 +63,7 @@ class Style:
     ICON_SPARKLE = safe_symbol("✨", "*")
     ICON_ROBOT = safe_symbol("🤖", "[AI]")
     ICON_SHIELD = safe_symbol("🛡️", "[SAFETY]")
+    ICON_BRANCH = safe_symbol("🌿", "[BRANCH]")
 
     @classmethod
     def info(cls, msg: str) -> str:
@@ -146,6 +148,7 @@ def run_setup(
 def run_main_workflow(
     message: Optional[str],
     branch_override: Optional[str],
+    new_branch_name: Optional[str],
     repo_override: Optional[str],
     skip_add: bool,
     force: bool,
@@ -172,8 +175,23 @@ def run_main_workflow(
         print(Style.error("Current directory is not a Git repository."))
         sys.exit(1)
 
-    # 2. Determine target branch
-    branch = branch_override or get_current_branch()
+    # 1b. Handle Automatic Branch Creation (-B / --create-branch)
+    if new_branch_name:
+        if dry_run:
+            print(Style.info(f"[DRY RUN] Would create and checkout branch '{new_branch_name}'"))
+            branch = new_branch_name
+        else:
+            print(Style.info(f"{Style.ICON_BRANCH} Creating/checking out branch '{new_branch_name}'..."))
+            success, b_msg = create_and_checkout_branch(new_branch_name)
+            if not success:
+                print(Style.error(b_msg))
+                sys.exit(1)
+            print(Style.success(b_msg))
+            branch = new_branch_name
+    else:
+        # 2. Determine target branch
+        branch = branch_override or get_current_branch()
+
     if not branch:
         print(Style.error("Could not determine current Git branch. Specify one using --branch <name>."))
         sys.exit(1)
@@ -343,10 +361,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""Examples:
   gpush                          # Stage all, auto-commit with timestamp, and push
   gpush -a                       # Stage all, generate AI commit message, and push
-  gpush -p                       # Push and automatically open a GitHub Pull Request
+  gpush -B feature/auth -a -p    # Create new branch, AI commit message, and open GitHub PR
   gpush -p --draft               # Open a Draft Pull Request on GitHub
-  gpush -p --labels "bug,v1.0"   # Open a PR with specific labels attached
-  gpush -a -p --reviewers "user1"# AI commit + PR + request reviewer
   gpush setup                    # Configure default username, repo, token, and test command
 """
     )
@@ -369,6 +385,13 @@ def build_parser() -> argparse.ArgumentParser:
         "-a", "--ai",
         action="store_true",
         help="Generate commit message automatically using AI diff analysis."
+    )
+
+    parser.add_argument(
+        "-B", "--create-branch",
+        dest="create_branch",
+        metavar="BRANCH",
+        help="Create a new Git branch and checkout before committing and pushing."
     )
 
     parser.add_argument(
@@ -524,6 +547,7 @@ def main(argv: Optional[List[str]] = None):
         run_main_workflow(
             message=commit_msg,
             branch_override=args.branch,
+            new_branch_name=args.create_branch,
             repo_override=args.repo,
             skip_add=args.skip_add,
             force=args.force,

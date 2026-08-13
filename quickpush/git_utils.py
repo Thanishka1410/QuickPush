@@ -59,6 +59,32 @@ def get_current_branch(cwd: Optional[str] = None) -> Optional[str]:
     return "main"
 
 
+def create_and_checkout_branch(branch_name: str, cwd: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Create a new branch and checkout (`git checkout -b <branch_name>`).
+    If the branch already exists, switch to it (`git checkout <branch_name>`).
+    """
+    if not branch_name:
+        return False, "Branch name is required."
+
+    current = get_current_branch(cwd=cwd)
+    if current == branch_name:
+        return True, f"Already on branch '{branch_name}'."
+
+    # Try creating new branch first
+    code, out, err = run_git_command(["checkout", "-b", branch_name], cwd=cwd)
+    if code == 0:
+        return True, f"Created and checked out new branch '{branch_name}'."
+
+    # If already exists, switch to it
+    code_sw, out_sw, err_sw = run_git_command(["checkout", branch_name], cwd=cwd)
+    if code_sw == 0:
+        return True, f"Switched to existing branch '{branch_name}'."
+
+    return False, err or err_sw or f"Failed to checkout branch '{branch_name}'."
+
+
+
 
 def get_remote_url(remote_name: str = "origin", cwd: Optional[str] = None) -> Optional[str]:
     """Get the URL for the specified remote (default: origin)."""

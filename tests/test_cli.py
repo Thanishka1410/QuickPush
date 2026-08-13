@@ -12,11 +12,18 @@ from pathlib import Path
 from quickpush.ai_commit import clean_commit_message, generate_heuristic_commit_message
 from quickpush.checker import detect_test_command, detect_lint_command, run_check
 from quickpush.config import save_config, load_config, get_token, get_config_path
-from quickpush.git_utils import parse_github_repo_info, get_default_commit_message
+from quickpush.git_utils import parse_github_repo_info, get_default_commit_message, create_and_checkout_branch
 from quickpush.github_api import create_pull_request, detect_pr_template
 
 
 class TestQuickPush(unittest.TestCase):
+
+    def test_create_and_checkout_branch(self):
+        """Test creating and checking out a branch."""
+        success, msg = create_and_checkout_branch("master")
+        self.assertTrue(success)
+        self.assertIn("Already on branch", msg)
+
 
     def test_detect_pr_template_none(self):
         """Test PR template detection when no template file exists."""
