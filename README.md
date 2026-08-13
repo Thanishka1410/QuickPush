@@ -180,7 +180,21 @@ gpush -l -t -a -p
 gpush --test-cmd "npm test" --lint-cmd "npm run lint"
 ```
 
-> **Note on AI Keys**: `gpush` includes a built-in smart diff analyzer that works out of the box with zero setup. To use Gemini or OpenAI cloud models, configure your key once via `gpush setup --ai-key YOUR_API_KEY` or export `GEMINI_API_KEY` / `OPENAI_API_KEY` in your environment.
+### Enhanced GitHub PR Control (`--draft`, `--labels`, `--reviewers`)
+Advanced options for automated Pull Request creation:
+
+```bash
+# Create a Draft Pull Request with labels and requested reviewers
+gpush -p --draft --labels "enhancement,v1.0" --reviewers "octocat,developer2"
+
+# Specify custom PR title and description body
+gpush -p --pr-title "feat: payment gateway integration" --pr-body "Implements Stripe SDK"
+
+# Assign team members upon creation
+gpush -p --assignees "octocat"
+```
+
+> **Note on PR Templates**: If no custom `--pr-body` is passed, `gpush` automatically detects and uses your repository's `.github/PULL_REQUEST_TEMPLATE.md` template file.
 
 ---
 
@@ -199,11 +213,18 @@ gpush --test-cmd "npm test" --lint-cmd "npm run lint"
 | `-r`, `--repo` | `-r` | Override repository target (URL or `owner/repo`) |
 | `-s`, `--skip-add` | `-s` | Skip standard `git add .` step |
 | `-f`, `--force` | `-f` | Perform force push (`git push --force`) |
-| `-p`, `--pr` | `-p` | Create a Pull Request on GitHub via API after push |
+| `-p`, `--pr` | `-p` | Automatically open a Pull Request on GitHub after pushing |
+| `--draft` | | Open the GitHub Pull Request as a Draft PR |
+| `--pr-title` | | Custom title for the GitHub Pull Request |
+| `--pr-body` | | Custom body description for the GitHub Pull Request |
+| `--labels` | | Comma-separated labels list (e.g. `'bug,v1.0'`) |
+| `--assignees` | | Comma-separated list of assigned GitHub usernames |
+| `--reviewers` | | Comma-separated list of requested reviewer usernames |
 | `--base` | | Target base branch for PR (default: `main`) |
 | `--dry-run` | | Preview actions without executing commands |
 | `-v`, `--version` | `-v` | Show QuickPush version |
 | `-h`, `--help` | `-h` | Show CLI help manual |
+
 
 
 

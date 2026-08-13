@@ -1,7 +1,7 @@
 """
 Main CLI entry point for QuickPush (`gpush`).
 Handles argument parsing, user configuration interactive setup, terminal output formatting,
-pre-push safety testing/linting checks, and workflow orchestration for git add, commit, push, PR creation, and AI commit generation.
+pre-push safety testing/linting checks, AI commit generation, and enhanced GitHub PR creation.
 """
 
 import argparse
@@ -151,6 +151,12 @@ def run_main_workflow(
     force: bool,
     create_pr: bool,
     pr_base: Optional[str],
+    draft_pr: bool,
+    pr_title: Optional[str],
+    pr_body: Optional[str],
+    labels_str: Optional[str],
+    assignees_str: Optional[str],
+    reviewers_str: Optional[str],
     use_ai: bool,
     run_test: bool,
     run_lint: bool,
@@ -280,14 +286,27 @@ def run_main_workflow(
         print(Style.success(f"Pushed to GitHub remote '{remote_name}/{branch}' successfully!"))
 
     # 8. Create Pull Request if requested
-    if create_pr:
+    if create_pr or draft_pr:
         token = get_token(config)
         base = pr_base or config.get("default_branch") or "main"
+        labels = [l.strip() for l in labels_str.split(",")] if labels_str else None
+        assignees = [a.strip() for a in assignees_str.split(",")] if assignees_str else None
+        reviewers = [r.strip() for r in reviewers_str.split(",")] if reviewers_str else None
+
+        pr_type_name = "Draft Pull Request" if draft_pr else "Pull Request"
 
         if dry_run:
-            print(Style.info(f"[DRY RUN] Would create Pull Request from '{branch}' to '{base}' on {owner}/{repo_name} via GitHub REST API"))
+            extra_info = []
+            if labels:
+                extra_info.append(f"labels={labels}")
+            if assignees:
+                extra_info.append(f"assignees={assignees}")
+            if reviewers:
+                extra_info.append(f"reviewers={reviewers}")
+            extra_str = f" with {', '.join(extra_info)}" if extra_info else ""
+            print(Style.info(f"[DRY RUN] Would create {pr_type_name} from '{branch}' to '{base}' on {owner}/{repo_name} via GitHub REST API{extra_str}"))
         else:
-            print(f"Creating Pull Request on GitHub ({branch} ➔ {base})...")
+            print(f"Creating {pr_type_name} on GitHub ({branch} ➔ {base})...")
             if not token:
                 print(Style.warn("GitHub Personal Access Token not found! Cannot create PR automatically."))
                 print(Style.warn("Set GITHUB_TOKEN environment variable or run 'gpush setup' to configure your token."))
@@ -300,7 +319,12 @@ def run_main_workflow(
                     repo=repo_name,
                     head_branch=branch,
                     base_branch=base,
-                    title=commit_msg or f"PR: {branch} -> {base}"
+                    title=pr_title or commit_msg or f"PR: {branch} -> {base}",
+                    body=pr_body,
+                    draft=draft_pr,
+                    labels=labels,
+                    assignees=assignees,
+                    reviewers=reviewers
                 )
                 if success:
                     print(Style.success(pr_msg))
@@ -319,9 +343,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""Examples:
   gpush                          # Stage all, auto-commit with timestamp, and push
   gpush -a                       # Stage all, generate AI commit message, and push
-  gpush -t                       # Run pre-push unit tests before committing/pushing
-  gpush -l -t                    # Run linter & test suite before pushing
-  gpush -a -t -p                 # Run tests + AI commit message + open GitHub PR
+  gpush -p                       # Push and automatically open a GitHub Pull Request
+  gpush -p --draft               # Open a Draft Pull Request on GitHub
+  gpush -p --labels "bug,v1.0"   # Open a PR with specific labels attached
+  gpush -a -p --reviewers "user1"# AI commit + PR + request reviewer
   gpush setup                    # Configure default username, repo, token, and test command
 """
     )
@@ -401,6 +426,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--draft",
+        action="store_true",
+        help="Open the GitHub Pull Request as a Draft PR."
+    )
+
+    parser.add_argument(
+        "--pr-title",
+        metavar="TITLE",
+        help="Custom title for the GitHub Pull Request."
+    )
+
+    parser.add_argument(
+        "--pr-body",
+        metavar="BODY",
+        help="Custom body description for the GitHub Pull Request."
+    )
+
+    parser.add_argument(
+        "--labels",
+        metavar="LABELS",
+        help="Comma-separated list of labels to attach to the PR (e.g. 'bug,v1.0')."
+    )
+
+    parser.add_argument(
+        "--assignees",
+        metavar="USERS",
+        help="Comma-separated list of GitHub usernames to assign to the PR."
+    )
+
+    parser.add_argument(
+        "--reviewers",
+        metavar="USERS",
+        help="Comma-separated list of GitHub usernames to request reviews from."
+    )
+
+    parser.add_argument(
         "--base",
         metavar="BASE_BRANCH",
         help="Base branch for Pull Request (defaults to 'main')."
@@ -468,6 +529,12 @@ def main(argv: Optional[List[str]] = None):
             force=args.force,
             create_pr=args.pr,
             pr_base=args.base,
+            draft_pr=args.draft,
+            pr_title=args.pr_title,
+            pr_body=args.pr_body,
+            labels_str=args.labels,
+            assignees_str=args.assignees,
+            reviewers_str=args.reviewers,
             use_ai=args.ai,
             run_test=args.test,
             run_lint=args.lint,
