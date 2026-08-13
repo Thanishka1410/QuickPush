@@ -1,7 +1,7 @@
 """
 Main CLI entry point for QuickPush (`gpush`).
 Handles argument parsing, user configuration interactive setup, terminal output formatting,
-and workflow orchestration for git add, commit, push, PR creation, and AI commit generation.
+pre-push safety testing/linting checks, and workflow orchestration for git add, commit, push, PR creation, and AI commit generation.
 """
 
 import argparse
@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from quickpush import __version__
 from quickpush.ai_commit import generate_ai_commit_message
+from quickpush.checker import detect_test_command, detect_lint_command, run_check
 from quickpush.config import load_config, save_config, get_token, get_config_path
 from quickpush.git_utils import (
     is_git_repository,
@@ -60,6 +61,7 @@ class Style:
     ICON_ROCKET = safe_symbol("🚀", ">>")
     ICON_SPARKLE = safe_symbol("✨", "*")
     ICON_ROBOT = safe_symbol("🤖", "[AI]")
+    ICON_SHIELD = safe_symbol("🛡️", "[SAFETY]")
 
     @classmethod
     def info(cls, msg: str) -> str:
@@ -84,14 +86,16 @@ def run_setup(
     token: Optional[str],
     branch: Optional[str],
     ai_key: Optional[str] = None,
-    ai_provider: Optional[str] = None
+    ai_provider: Optional[str] = None,
+    test_cmd: Optional[str] = None,
+    lint_cmd: Optional[str] = None
 ):
     """Execute the interactive or flagged setup command to update ~/.gpconfig."""
     print(f"\n{Style.BOLD}--- QuickPush Configuration Setup ---{Style.RESET}\n")
 
     current = load_config()
 
-    if not any([username, repo, token, branch, ai_key, ai_provider]):
+    if not any([username, repo, token, branch, ai_key, ai_provider, test_cmd, lint_cmd]):
         print("Enter your GitHub configuration options below (press Enter to keep existing value):\n")
         
         user_in = input(f"GitHub Username [{current.get('github_username', '')}]: ").strip()
@@ -109,6 +113,12 @@ def run_setup(
         ai_key_in = input(f"AI API Key (Gemini/OpenAI) [{ '******' if current.get('ai_api_key') else '' }]: ").strip()
         ai_key = ai_key_in if ai_key_in else current.get('ai_api_key')
 
+        test_cmd_in = input(f"Default Test Command [{current.get('test_command', '')}]: ").strip()
+        test_cmd = test_cmd_in if test_cmd_in else current.get('test_command')
+
+        lint_cmd_in = input(f"Default Lint Command [{current.get('lint_command', '')}]: ").strip()
+        lint_cmd = lint_cmd_in if lint_cmd_in else current.get('lint_command')
+
     new_config = {}
     if username:
         new_config["github_username"] = username
@@ -122,6 +132,10 @@ def run_setup(
         new_config["ai_api_key"] = ai_key
     if ai_provider:
         new_config["ai_provider"] = ai_provider
+    if test_cmd:
+        new_config["test_command"] = test_cmd
+    if lint_cmd:
+        new_config["lint_command"] = lint_cmd
 
     if save_config(new_config):
         print(f"\n{Style.success(f'Configuration successfully saved to {get_config_path()}')}")
@@ -138,9 +152,13 @@ def run_main_workflow(
     create_pr: bool,
     pr_base: Optional[str],
     use_ai: bool,
+    run_test: bool,
+    run_lint: bool,
+    test_cmd_override: Optional[str],
+    lint_cmd_override: Optional[str],
     dry_run: bool
 ):
-    """Execute the main stage -> commit -> push -> PR workflow."""
+    """Execute the main stage -> test/lint -> commit -> push -> PR workflow."""
     print(f"\n{Style.BOLD}{Style.ICON_ROCKET} QuickPush ({__version__}){Style.RESET}")
 
     # 1. Verify Git repository
@@ -192,6 +210,39 @@ def run_main_workflow(
                 print(Style.success("Staged changes successfully."))
             else:
                 print(Style.info("No uncommitted changes detected to stage."))
+
+    # 4b. Pre-Push Safety Checks (Linting & Testing)
+    if run_lint or config.get("auto_lint", False):
+        lint_command = lint_cmd_override or config.get("lint_command") or detect_lint_command()
+        if not lint_command:
+            print(Style.warn("Could not auto-detect a lint command. Specify one using --lint-cmd <cmd>."))
+        else:
+            print(Style.info(f"{Style.ICON_SHIELD} Running Linter: '{lint_command}'..."))
+            if dry_run:
+                print(Style.info(f"[DRY RUN] Would execute linter check: {lint_command}"))
+            else:
+                success, out = run_check(lint_command, label="Linter")
+                if not success:
+                    print(Style.error(f"Linter failed!\n\n{out}\n"))
+                    print(Style.error("Pre-push safety check failed. Aborting commit and push."))
+                    sys.exit(1)
+                print(Style.success("Linter check passed cleanly."))
+
+    if run_test or config.get("auto_test", False):
+        test_command = test_cmd_override or config.get("test_command") or detect_test_command()
+        if not test_command:
+            print(Style.warn("Could not auto-detect a test command. Specify one using --test-cmd <cmd>."))
+        else:
+            print(Style.info(f"{Style.ICON_SHIELD} Running Test Suite: '{test_command}'..."))
+            if dry_run:
+                print(Style.info(f"[DRY RUN] Would execute test suite: {test_command}"))
+            else:
+                success, out = run_check(test_command, label="Test Suite")
+                if not success:
+                    print(Style.error(f"Test suite failed!\n\n{out}\n"))
+                    print(Style.error("Pre-push safety check failed. Aborting commit and push."))
+                    sys.exit(1)
+                print(Style.success("Test suite passed cleanly."))
 
     # 5. Determine Commit Message (AI or User/Default)
     if use_ai or (message is None and config.get("auto_ai", False)):
@@ -268,10 +319,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""Examples:
   gpush                          # Stage all, auto-commit with timestamp, and push
   gpush -a                       # Stage all, generate AI commit message, and push
-  gpush "feat: add user login"   # Stage all, commit with custom message, and push
-  gpush -a -p                    # AI commit message + open GitHub Pull Request
-  gpush -m "fix bug" -f          # Force push with commit message
-  gpush setup                    # Configure default username, repo, token, and AI API key
+  gpush -t                       # Run pre-push unit tests before committing/pushing
+  gpush -l -t                    # Run linter & test suite before pushing
+  gpush -a -t -p                 # Run tests + AI commit message + open GitHub PR
+  gpush setup                    # Configure default username, repo, token, and test command
 """
     )
 
@@ -293,6 +344,30 @@ def build_parser() -> argparse.ArgumentParser:
         "-a", "--ai",
         action="store_true",
         help="Generate commit message automatically using AI diff analysis."
+    )
+
+    parser.add_argument(
+        "-t", "--test",
+        action="store_true",
+        help="Run pre-push unit test suite before committing/pushing."
+    )
+
+    parser.add_argument(
+        "-l", "--lint",
+        action="store_true",
+        help="Run pre-push linter / code check before committing/pushing."
+    )
+
+    parser.add_argument(
+        "--test-cmd",
+        metavar="CMD",
+        help="Custom test command override (e.g., 'pytest', 'npm test')."
+    )
+
+    parser.add_argument(
+        "--lint-cmd",
+        metavar="CMD",
+        help="Custom lint command override (e.g., 'ruff check .', 'npm run lint')."
     )
 
     parser.add_argument(
@@ -350,7 +425,7 @@ def build_setup_parser() -> argparse.ArgumentParser:
     """Build parser for `gpush setup` subcommand."""
     setup_parser = argparse.ArgumentParser(
         prog="gpush setup",
-        description="Configure GitHub username, default repo, token, branch, and AI API key."
+        description="Configure GitHub username, default repo, token, branch, AI key, and test/lint commands."
     )
     setup_parser.add_argument("-u", "--username", help="GitHub Username")
     setup_parser.add_argument("-r", "--repo", help="Default repository (owner/repo)")
@@ -358,6 +433,8 @@ def build_setup_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("-b", "--branch", help="Default target base branch")
     setup_parser.add_argument("--ai-key", help="AI API Key (Gemini or OpenAI)")
     setup_parser.add_argument("--ai-provider", help="AI Provider (gemini or openai)")
+    setup_parser.add_argument("--test-cmd", help="Default test command")
+    setup_parser.add_argument("--lint-cmd", help="Default lint command")
     return setup_parser
 
 
@@ -375,7 +452,9 @@ def main(argv: Optional[List[str]] = None):
             token=args.token,
             branch=args.branch,
             ai_key=args.ai_key,
-            ai_provider=args.ai_provider
+            ai_provider=args.ai_provider,
+            test_cmd=args.test_cmd,
+            lint_cmd=args.lint_cmd
         )
     else:
         parser = build_parser()
@@ -390,6 +469,10 @@ def main(argv: Optional[List[str]] = None):
             create_pr=args.pr,
             pr_base=args.base,
             use_ai=args.ai,
+            run_test=args.test,
+            run_lint=args.lint,
+            test_cmd_override=args.test_cmd,
+            lint_cmd_override=args.lint_cmd,
             dry_run=args.dry_run
         )
 

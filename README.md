@@ -166,9 +166,18 @@ Automatically inspect your staged changes and generate a Conventional Commit mes
 gpush -a
 ```
 
-Or combine with automatic Pull Request creation:
+### Pre-Push Safety Checks & Testing (`gpush -t` / `gpush -l`)
+Run unit tests or linting checks before committing and pushing. If tests or linting fail, execution aborts to prevent broken code from landing on remote:
+
 ```bash
-gpush -a -p
+# Run unit tests before pushing
+gpush -t
+
+# Run linter + unit tests + AI commit message + open PR
+gpush -l -t -a -p
+
+# Use custom test/lint command override
+gpush --test-cmd "npm test" --lint-cmd "npm run lint"
 ```
 
 > **Note on AI Keys**: `gpush` includes a built-in smart diff analyzer that works out of the box with zero setup. To use Gemini or OpenAI cloud models, configure your key once via `gpush setup --ai-key YOUR_API_KEY` or export `GEMINI_API_KEY` / `OPENAI_API_KEY` in your environment.
@@ -182,6 +191,10 @@ gpush -a -p
 | `[MESSAGE]` | | Commit message string (positional argument) |
 | `-m`, `--message-flag` | `-m` | Explicit commit message option |
 | `-a`, `--ai` | `-a` | Automatically generate Conventional Commit message using AI |
+| `-t`, `--test` | `-t` | Run pre-push unit test suite before committing/pushing |
+| `-l`, `--lint` | `-l` | Run pre-push linter check before committing/pushing |
+| `--test-cmd` | | Custom test command override (e.g. `pytest`, `npm test`) |
+| `--lint-cmd` | | Custom lint command override (e.g. `ruff check .`, `npm run lint`) |
 | `-b`, `--branch` | `-b` | Target branch to push to (defaults to active branch) |
 | `-r`, `--repo` | `-r` | Override repository target (URL or `owner/repo`) |
 | `-s`, `--skip-add` | `-s` | Skip standard `git add .` step |
@@ -191,6 +204,7 @@ gpush -a -p
 | `--dry-run` | | Preview actions without executing commands |
 | `-v`, `--version` | `-v` | Show QuickPush version |
 | `-h`, `--help` | `-h` | Show CLI help manual |
+
 
 
 ---

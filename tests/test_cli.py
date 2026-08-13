@@ -10,12 +10,28 @@ import unittest
 from pathlib import Path
 
 from quickpush.ai_commit import clean_commit_message, generate_heuristic_commit_message
+from quickpush.checker import detect_test_command, detect_lint_command, run_check
 from quickpush.config import save_config, load_config, get_token, get_config_path
 from quickpush.git_utils import parse_github_repo_info, get_default_commit_message
 from quickpush.github_api import create_pull_request
 
 
 class TestQuickPush(unittest.TestCase):
+
+    def test_detect_test_command(self):
+        """Test auto-detecting test command in Python project."""
+        cmd = detect_test_command()
+        self.assertIsNotNone(cmd)
+        self.assertTrue("pytest" in cmd or "unittest" in cmd)
+
+    def test_run_check_success_and_failure(self):
+        """Test executing successful and failing commands in run_check."""
+        success, out = run_check("python -c \"print('OK')\"")
+        self.assertTrue(success)
+        self.assertIn("OK", out)
+
+        fail_success, fail_out = run_check("python -c \"import sys; sys.exit(1)\"")
+        self.assertFalse(fail_success)
 
     def test_clean_commit_message(self):
         """Test AI commit message cleaning (markdown block removal, quotes removal)."""
@@ -24,6 +40,7 @@ class TestQuickPush(unittest.TestCase):
 
         quoted = '"fix(auth): fix token expiration"'
         self.assertEqual(clean_commit_message(quoted), "fix(auth): fix token expiration")
+
 
     def test_heuristic_commit_message(self):
         """Test rule-based conventional commit generator."""

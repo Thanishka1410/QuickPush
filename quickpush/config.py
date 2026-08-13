@@ -6,7 +6,7 @@ Handles reading, writing, and merging settings stored in ~/.gpconfig.
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 CONFIG_FILE_NAME = ".gpconfig"
 
@@ -79,4 +79,15 @@ def get_ai_key(config: Optional[Dict[str, Any]] = None) -> Optional[str]:
 
     key = config.get("ai_api_key") or config.get("gemini_api_key") or config.get("openai_api_key")
     return key.strip() if key else None
+
+
+def get_check_commands(config: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Optional[str]]:
+    """Retrieve test and lint commands from config."""
+    if config is None:
+        config = load_config()
+
+    test_cmd = config.get("test_command")
+    lint_cmd = config.get("lint_command")
+    return test_cmd, lint_cmd
+
 
